@@ -4,15 +4,24 @@
 package main
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"net/http"
+	"os"
+	"strings"
+	"time"
 )
 
 var adapter CRMAdapter
+
+// logger пишет структурированные события в JSON (lead_created, deal_stage_changed и пр.).
+// TODO(E5): персист событий в БД (нужен SQL-драйвер вне stdlib) — пока только лог.
+var logger = slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
 func newID() string {
 	b := make([]byte, 16)
@@ -67,7 +76,9 @@ func handleUpsertLead(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"detail": "invalid json"})
 		return
 	}
-	writeJSON(w, http.StatusOK, IDResponse{ID: adapter.UpsertLead(l)})
+	id := adapter.UpsertLead(l)
+	logger.Info("lead_created", "lead_id", id, "provider", adapter.Name(), "source", l.Source, "title", l.Title)
+	writeJSON(w, http.StatusOK, IDResponse{ID: id})
 }
 
 func handleUpdateStage(w http.ResponseWriter, r *http.Request) {
@@ -76,7 +87,9 @@ func handleUpdateStage(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"detail": "invalid json"})
 		return
 	}
-	adapter.UpdateDealStage(r.PathValue("deal_id"), b.Stage)
+	dealID := r.PathValue("deal_id")
+	adapter.UpdateDealStage(dealID, b.Stage)
+	logger.Info("deal_stage_changed", "deal_id", dealID, "stage", b.Stage, "provider", adapter.Name())
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -108,7 +121,47 @@ func handleByPhone(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleCRMWebhook(w http.ResponseWriter, r *http.Request) {
-	// TODO(E5): обработка входящих изменений из CRM и проброс в n8n.
-	_, _ = io.Copy(io.Discard, r.Body)
-	writeJSON(w, http.StatusOK, map[string]string{"status": "accepted"})
+	body, _ := io.ReadAll(r.Body)
+	event := parseWebhookEvent(body)
+	logger.Info("crm_webhook_received", "event", event, "provider", adapter.Name(), "bytes", len(body))
+	// Best-effort форвард в n8n; ошибки не влияют на ответ CRM.
+	forwardToN8N(body)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "accepted", "event": event})
+}
+
+// parseWebhookEvent минимально извлекает тип события из входящего payload.
+// amoCRM/Bitrix24 шлют form-encoded или JSON; пытаемся найти типовые поля.
+func parseWebhookEvent(body []byte) string {
+	var asJSON map[string]any
+	if err := json.Unmarshal(body, &asJSON); err == nil {
+		for _, k := range []string{"event", "event_type", "type"} {
+			if v, ok := asJSON[k].(string); ok && v != "" {
+				return v
+			}
+		}
+	}
+	return "unknown"
+}
+
+// forwardToN8N best-effort пересылает сырой payload в n8n.
+// Если N8N_WEBHOOK_BASE не задан — пропускаем (например, в оффлайн-тестах).
+func forwardToN8N(payload []byte) {
+	base := env("N8N_WEBHOOK_BASE", "")
+	if base == "" {
+		return
+	}
+	url := strings.TrimRight(base, "/") + "/webhook/crm-update"
+	client := &http.Client{Timeout: 5 * time.Second}
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(payload))
+	if err != nil {
+		logger.Warn("n8n_forward_build_failed", "error", err.Error())
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		logger.Warn("n8n_forward_failed", "error", err.Error())
+		return
+	}
+	_ = resp.Body.Close()
 }

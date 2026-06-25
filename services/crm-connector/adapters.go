@@ -71,17 +71,24 @@ func (a *InMemoryAdapter) GetContactByPhone(phone string) (ContactOut, bool) {
 	return c, ok
 }
 
-// TODO(E5): AmoCRMAdapter поверх amoCRM REST API (OAuth 2.0).
-// TODO(E5): Bitrix24Adapter поверх Bitrix24 REST (входящий вебхук), учесть коробку (on-prem).
-
+// getAdapter выбирает адаптер по APP_MODE и CRM_PROVIDER.
+//   - APP_MODE=mock (по умолчанию): InMemoryAdapter без сети.
+//   - APP_MODE=real: AmoCRMAdapter или Bitrix24Adapter по CRM_PROVIDER.
 func getAdapter() CRMAdapter {
 	mode := env("APP_MODE", "mock")
 	provider := env("CRM_PROVIDER", "amocrm")
-	if mode == "mock" {
+	if mode != "real" {
 		return NewInMemoryAdapter("memory")
 	}
-	// До реализации реальных адаптеров используем in-memory с именем провайдера.
-	return NewInMemoryAdapter(provider)
+	switch provider {
+	case "bitrix24":
+		return NewBitrix24Adapter()
+	case "amocrm":
+		return NewAmoCRMAdapter()
+	default:
+		logger.Warn("unknown_crm_provider_fallback_mock", "provider", provider)
+		return NewInMemoryAdapter(provider)
+	}
 }
 
 func env(key, def string) string {
