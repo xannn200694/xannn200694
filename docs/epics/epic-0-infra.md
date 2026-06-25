@@ -1,0 +1,29 @@
+# Эпик E0 — Инфраструктура и DevOps-фундамент
+
+**Цель:** дать всем остальным эпикам общий каркас: репозиторий, контейнеры, БД, секреты, моки, CI.
+**Можно стартовать:** сразу (это Фаза 0).
+**Milestone:** M0.
+
+## Задачи
+1. Структура монорепозитория: `services/llm-gateway`, `services/rag`, `services/channel-gateway`,
+   `services/crm-connector`, `analytics/`, `n8n/`, `infra/`, `mocks/`.
+2. `docker-compose.yml`: PostgreSQL, Qdrant (или pgvector), n8n, сервисы, Metabase, reverse proxy (Caddy/Traefik).
+3. Единый `.env.example` со всеми переменными (см. [`../03-interfaces.md`](../03-interfaces.md) §7).
+4. Миграции БД для схемы из §6 контрактов (например, Alembic/SQL-файлы).
+5. Моки границ: `mock-llm`, `mock-rag`, `mock-crm`, `mock-channel` (минимальные FastAPI-заглушки по контрактам).
+6. CI (GitHub Actions): линт, тесты, сборка образов, проверка `docker compose config`.
+7. Базовый reverse proxy с TLS и маршрутизацией вебхуков.
+8. Шаблон сервиса (cookiecutter/README) для единообразия.
+
+## Артефакты
+- Запускаемый `docker compose up` со всеми моками и инфраструктурой.
+- README верхнего уровня с инструкцией локального запуска.
+
+## Критерии приёмки (M0)
+- `docker compose up` поднимает все контейнеры, healthchecks зелёные.
+- Миграции применяются, таблицы созданы.
+- Моки отвечают по контрактным эндпоинтам.
+- CI проходит на пустых сервисах.
+
+## Зависимости / контракты
+- Производит: схему БД, `.env.example`, моки, CI — потребляют все эпики.
