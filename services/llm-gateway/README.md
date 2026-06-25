@@ -3,19 +3,16 @@
 Единая точка доступа к LLM: управление промптами, тиринг моделей (решение D4), сборка контекста из RAG,
 эвристика эскалации, учёт стоимости. Контракт — `docs/03-interfaces.md` §2.
 
+Реализация на **Go 1.26** (стандартная библиотека, без внешних зависимостей).
+
 ## Запуск (локально)
 ```bash
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8001
-```
-
-## Тесты
-```bash
-python -m pytest -q
+go run .            # слушает :8000 (PORT по умолчанию)
+go test ./...
 ```
 
 ## Эндпоинты
-- `GET /health`
+- `GET /health`, `GET /v1/health`
 - `POST /v1/chat`
 - `POST /v1/classify`
 - `GET /v1/prompts`, `GET /v1/prompts/{id}`

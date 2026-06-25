@@ -1,7 +1,10 @@
-FROM python:3.12-slim
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+FROM golang:1.26 AS build
+WORKDIR /src
+COPY go.mod ./
 COPY . .
+RUN CGO_ENABLED=0 go build -o /out/app .
+
+FROM gcr.io/distroless/static-debian12
+COPY --from=build /out/app /app
 EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+ENTRYPOINT ["/app"]

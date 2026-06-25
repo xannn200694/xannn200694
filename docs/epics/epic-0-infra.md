@@ -11,10 +11,10 @@
 2. `docker-compose.yml`: PostgreSQL, Qdrant (или pgvector), n8n, сервисы, Metabase, reverse proxy (Caddy/Traefik).
 3. Единый `.env.example` со всеми переменными (см. [`../03-interfaces.md`](../03-interfaces.md) §7).
 4. Миграции БД для схемы из §6 контрактов (например, Alembic/SQL-файлы).
-5. Моки границ: `mock-llm`, `mock-rag`, `mock-crm`, `mock-channel` (минимальные FastAPI-заглушки по контрактам).
+5. Моки границ: `mock-llm`, `mock-rag`, `mock-crm` (минимальные Go-заглушки по контрактам).
 6. CI (GitHub Actions): линт, тесты, сборка образов, проверка `docker compose config`.
 7. Базовый reverse proxy с TLS и маршрутизацией вебхуков.
-8. Шаблон сервиса (cookiecutter/README) для единообразия.
+8. Шаблон Go-сервиса (go.mod + main.go + Dockerfile + README) для единообразия.
 
 ## Артефакты
 - Запускаемый `docker compose up` со всеми моками и инфраструктурой.

@@ -15,8 +15,8 @@
 | Агент | Эпики | Навыки |
 |-------|-------|--------|
 | Agent A — Platform/DevOps | E0, частично E7 | Docker, CI, PostgreSQL, сеть/секреты |
-| Agent B — AI/LLM | E1, E2 | Python, LLM API, prompt-engineering, RAG, Vector DB |
-| Agent C — Channels | E3 | Webhooks, Telegram/WhatsApp API, FastAPI |
+| Agent B — AI/LLM | E1, E2 | Go, LLM API, prompt-engineering, RAG, Vector DB |
+| Agent C — Channels | E3 | Go (net/http), Webhooks, Telegram/WhatsApp API |
 | Agent D — Orchestration | E4 | n8n, бизнес-логика воронки |
 | Agent E — Integrations | E5 | CRM API, маппинг данных |
 | Agent F — Analytics | E6 | SQL, дашборды, моделирование событий |

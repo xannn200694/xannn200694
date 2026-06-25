@@ -3,19 +3,20 @@
 ИИ-ассистенты для WhatsApp/Telegram (ответы по базе знаний 24/7, RAG), автоматизация воронки продаж
 в n8n, интеграция с CRM (amoCRM/Bitrix24) и сквозная аналитика. LLM (OpenAI/Claude) через единый Gateway.
 
-Проект восстановлен из анализа вакансии «AI Automation Engineer / ИИ-Интегратор (Отдел продаж)» (Kivano)
-и спроектирован под параллельную разработку несколькими агентами. План — в [`docs/`](docs/README.md).
+Сервисы написаны на **Go 1.26** (стандартная библиотека, без внешних зависимостей). Проект восстановлен
+из анализа вакансии «AI Automation Engineer / ИИ-Интегратор (Отдел продаж)» (Kivano) и спроектирован под
+параллельную разработку несколькими агентами. План — в [`docs/`](docs/README.md).
 
 ## Структура репозитория
 
 ```
 docs/                  План: анализ, архитектура, контракты, эпики, решения
 services/
-  llm-gateway/         E1 — единый доступ к LLM, промпты, тиринг моделей
-  rag/                 E2 — индексация базы знаний и поиск (RAG)
-  channel-gateway/     E3 — WhatsApp/Telegram, нормализация, автоответ
-  crm-connector/       E5 — адаптеры amoCRM/Bitrix24
-mocks/                 Моки границ (mock-llm/mock-rag/mock-crm)
+  llm-gateway/         E1 — единый доступ к LLM, промпты, тиринг моделей (Go)
+  rag/                 E2 — индексация базы знаний и поиск (RAG) (Go)
+  channel-gateway/     E3 — WhatsApp/Telegram, нормализация, автоответ (Go)
+  crm-connector/       E5 — адаптеры amoCRM/Bitrix24 (Go)
+mocks/                 Моки границ (mock-llm/mock-rag/mock-crm) (Go)
 infra/                 Схема БД (init.sql), reverse proxy (Caddy)
 n8n/                   E4 — оркестрация воронки (воркфлоу)
 analytics/             E6 — дашборды и витрины (Metabase)
@@ -36,7 +37,7 @@ docker compose up --build     # поднимет инфраструктуру, �
 ## Тесты без Docker
 
 ```bash
-make test     # прогон pytest по всем python-сервисам и мокам
+make test     # прогон go test по всем Go-сервисам и мокам
 ```
 
 ## Статус

@@ -2,14 +2,15 @@
 
 Индексация базы знаний и семантический поиск. Контракт — `docs/03-interfaces.md` §3.
 
+Реализация на **Go 1.26** (стандартная библиотека).
+
 > Скелет: in-memory индекс + лексический скоринг (без внешних зависимостей).
 > В эпике E2 заменяется на эмбеддинги (`text-embedding-3-small`) + Qdrant/pgvector.
 
 ## Запуск
 ```bash
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8002
-python -m pytest -q
+go run .
+go test ./...
 ```
 
 ## Эндпоинты

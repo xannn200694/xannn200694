@@ -5,7 +5,7 @@
 **Milestones:** M3 (Telegram), M4 (WhatsApp).
 
 ## Задачи
-1. Channel Gateway (FastAPI) по контракту §1 ([`../03-interfaces.md`](../03-interfaces.md)).
+1. Channel Gateway (Go 1.26) по контракту §1 ([`../03-interfaces.md`](../03-interfaces.md)).
 2. **Telegram:** бот через Bot API (webhook), приём сообщений, отправка ответов, медиа.
 3. **WhatsApp (двухрежимная абстракция, решение D2):** интерфейс WhatsApp-провайдера с двумя реализациями
    за общим контрактом, переключение через `WA_MODE=cloud_api|web_bridge`:

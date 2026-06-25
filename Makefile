@@ -7,7 +7,7 @@ help:
 	@echo "  make down   - остановить стек"
 	@echo "  make logs   - логи всех сервисов"
 	@echo "  make build  - собрать образы"
-	@echo "  make test   - прогнать тесты всех сервисов локально (pytest)"
+	@echo "  make test   - прогнать тесты всех Go-сервисов локально (go test)"
 
 env:
 	@test -f .env || cp .env.example .env && echo ".env готов"
@@ -24,11 +24,11 @@ logs:
 build:
 	docker compose build
 
-# Прогон тестов всех python-компонентов без docker
+# Прогон тестов всех Go-компонентов без docker
 test:
 	@for d in services/* mocks/*; do \
-		if [ -f $$d/requirements.txt ]; then \
+		if [ -f $$d/go.mod ]; then \
 			echo "== tests: $$d =="; \
-			(cd $$d && python -m pytest -q || exit 1); \
+			(cd $$d && go test ./... || exit 1); \
 		fi; \
 	done
