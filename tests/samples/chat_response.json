@@ -1,0 +1,9 @@
+{
+  "text": "Спасибо за обращение!",
+  "model_used": "gpt-4o-mini",
+  "finish_reason": "stop",
+  "confidence": 0.8,
+  "should_escalate": false,
+  "usage": { "prompt_tokens": 1, "completion_tokens": 3, "cost_usd": 0.0 },
+  "trace_id": "00000000-0000-4000-8000-000000000000"
+}

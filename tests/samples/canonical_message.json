@@ -1,0 +1,10 @@
+{
+  "message_id": "tg-10-555",
+  "channel": "telegram",
+  "direction": "inbound",
+  "conversation_id": "555",
+  "contact": { "external_id": "777", "username": "user", "display_name": "Иван" },
+  "content": { "type": "text", "text": "Здравствуйте" },
+  "timestamp": "2026-01-01T00:00:00Z",
+  "metadata": {}
+}

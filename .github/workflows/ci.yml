@@ -19,6 +19,7 @@ jobs:
           - mocks/mock-llm
           - mocks/mock-rag
           - mocks/mock-crm
+          - tests
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

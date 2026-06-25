@@ -17,6 +17,7 @@
 | [`04-parallel-plan.md`](04-parallel-plan.md) | План параллельного выполнения: эпики, граф зависимостей, milestones, последовательность |
 | [`05-open-questions.md`](05-open-questions.md) | Открытые вопросы заказчику и принятые допущения |
 | [`06-decisions.md`](06-decisions.md) | Принятые решения (CRM, WhatsApp, хостинг, LLM, база знаний, Go) |
+| [`07-security-observability.md`](07-security-observability.md) | Безопасность и наблюдаемость (E7): реализовано и TODO |
 | [`epics/`](epics/) | Детальные карточки эпиков с задачами и критериями приёмки |
 
 ## Эпики (потоки параллельной работы)
