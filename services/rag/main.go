@@ -1,8 +1,12 @@
-// RAG Service (E2) — скелет по контракту §3 (docs/03-interfaces.md).
+// RAG Service (E2) — реализация по контракту §3 (docs/03-interfaces.md).
 //
-// Хранилище и поиск реализованы в памяти с наивным лексическим скорингом, чтобы каркас
-// работал без внешних зависимостей. В эпике E2 заменяется на эмбеддинги + Qdrant/pgvector,
-// а ингест расширяется парсерами сайта/Word/PDF (решение D5).
+// Архитектура:
+//   - Embedder (embedder.go): MockEmbedder (оффлайн) | OpenAIEmbedder (real).
+//   - Store (store.go): MemoryStore (лексический, оффлайн/фолбэк) | QdrantStore (real).
+//   - Парсеры источников (parsers.go): веб-сайт, Word (.docx), PDF (решение D5).
+//
+// APP_MODE=mock (по умолчанию) работает полностью оффлайн; APP_MODE=real ходит в
+// OpenAI Embeddings и Qdrant.
 package main
 
 import (
@@ -13,9 +17,9 @@ import (
 	"net/http"
 	"os"
 	"regexp"
-	"sort"
 	"strings"
-	"sync"
+	"time"
+	"unicode"
 )
 
 const chunkSize = 500
@@ -55,18 +59,15 @@ type SearchResponse struct {
 	Results []SearchResult `json:"results"`
 }
 
-type chunk struct {
-	text     string
-	source   string
-	metadata map[string]any
-	docID    string
-}
-
 var (
-	mu    sync.RWMutex
-	index = map[string]chunk{} // chunk_id -> chunk
-	wsRe  = regexp.MustCompile(`\s+`)
-	wRe   = regexp.MustCompile(`[\p{L}\p{N}_]+`) // Unicode-aware (включая кириллицу)
+	wsRe = regexp.MustCompile(`\s+`)
+	wRe  = regexp.MustCompile(`[\p{L}\p{N}_]+`) // Unicode-aware (включая кириллицу)
+)
+
+// Активные бэкенды. Инициализируются по APP_MODE; тесты могут переопределять напрямую.
+var (
+	activeEmbedder = newEmbedder()
+	activeStore    = newStore(activeEmbedder.Dim())
 )
 
 func env(key, def string) string {
@@ -115,26 +116,73 @@ func tokenize(s string) map[string]struct{} {
 	return set
 }
 
-func indexDocument(doc Document) int {
-	// Идемпотентный ингест: удаляем прежние чанки документа.
-	for cid, c := range index {
-		if c.docID == doc.DocID {
-			delete(index, cid)
+// detectLang — best-effort определение языка по алфавиту (ru/en), иначе "".
+func detectLang(s string) string {
+	var cyr, lat int
+	for _, r := range s {
+		switch {
+		case unicode.Is(unicode.Cyrillic, r):
+			cyr++
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z':
+			lat++
 		}
+	}
+	switch {
+	case cyr == 0 && lat == 0:
+		return ""
+	case cyr >= lat:
+		return "ru"
+	default:
+		return "en"
+	}
+}
+
+// ingestDocument чанкует документ, считает эмбеддинги и пишет в хранилище.
+// Возвращает количество созданных чанков.
+func ingestDocument(doc Document) (int, error) {
+	if doc.DocID == "" {
+		doc.DocID = newID()
 	}
 	source := doc.Source
 	if source == "" {
 		source = doc.Title
 	}
 	chunks := chunkText(doc.Text)
-	for _, ch := range chunks {
-		meta := map[string]any{"title": doc.Title}
+	vectors, err := activeEmbedder.Embed(chunks)
+	if err != nil {
+		return 0, err
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	cds := make([]chunkData, 0, len(chunks))
+	for i, ch := range chunks {
+		meta := map[string]any{
+			"title":      doc.Title,
+			"source":     source,
+			"updated_at": now,
+		}
+		if lang := detectLang(ch); lang != "" {
+			meta["lang"] = lang
+		}
 		for k, v := range doc.Metadata {
 			meta[k] = v
 		}
-		index[newID()] = chunk{text: ch, source: source, metadata: meta, docID: doc.DocID}
+		var vec []float32
+		if i < len(vectors) {
+			vec = vectors[i]
+		}
+		cds = append(cds, chunkData{
+			ChunkID:  newID(),
+			Text:     ch,
+			Source:   source,
+			Metadata: meta,
+			DocID:    doc.DocID,
+			Vector:   vec,
+		})
 	}
-	return len(chunks)
+	if err := activeStore.IndexDocument(doc.DocID, cds); err != nil {
+		return 0, err
+	}
+	return len(cds), nil
 }
 
 func router() *http.ServeMux {
@@ -142,6 +190,9 @@ func router() *http.ServeMux {
 	mux.HandleFunc("GET /health", handleHealth)
 	mux.HandleFunc("GET /v1/health", handleHealth)
 	mux.HandleFunc("POST /v1/ingest", handleIngest)
+	mux.HandleFunc("POST /v1/ingest/web", handleIngestWeb)
+	mux.HandleFunc("POST /v1/ingest/docx", handleIngestDocx)
+	mux.HandleFunc("POST /v1/ingest/pdf", handleIngestPDF)
 	mux.HandleFunc("POST /v1/search", handleSearch)
 	mux.HandleFunc("DELETE /v1/documents/{doc_id}", handleDelete)
 	return mux
@@ -154,13 +205,11 @@ func main() {
 }
 
 func handleHealth(w http.ResponseWriter, _ *http.Request) {
-	mu.RLock()
-	docs := map[string]struct{}{}
-	for _, c := range index {
-		docs[c.docID] = struct{}{}
-	}
-	mu.RUnlock()
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "mode": env("APP_MODE", "mock"), "docs": len(docs)})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status": "ok",
+		"mode":   env("APP_MODE", "mock"),
+		"docs":   activeStore.Docs(),
+	})
 }
 
 func handleIngest(w http.ResponseWriter, r *http.Request) {
@@ -169,12 +218,15 @@ func handleIngest(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"detail": "invalid json"})
 		return
 	}
-	mu.Lock()
 	total := 0
 	for _, d := range req.Documents {
-		total += indexDocument(d)
+		n, err := ingestDocument(d)
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]string{"detail": "ingest failed: " + err.Error()})
+			return
+		}
+		total += n
 	}
-	mu.Unlock()
 	writeJSON(w, http.StatusOK, IngestResponse{Ingested: len(req.Documents), Chunks: total})
 }
 
@@ -187,51 +239,31 @@ func handleSearch(w http.ResponseWriter, r *http.Request) {
 	if req.TopK <= 0 {
 		req.TopK = 5
 	}
-	qTokens := tokenize(req.Query)
-	var results []SearchResult
-	mu.RLock()
-	for cid, c := range index {
-		ct := tokenize(c.text)
-		overlap := 0
-		for t := range qTokens {
-			if _, ok := ct[t]; ok {
-				overlap++
-			}
-		}
-		if overlap == 0 {
-			continue
-		}
-		denom := len(qTokens)
-		if denom == 0 {
-			denom = 1
-		}
-		results = append(results, SearchResult{
-			ChunkID:  cid,
-			Text:     c.text,
-			Score:    float64(overlap) / float64(denom),
-			Source:   c.source,
-			Metadata: c.metadata,
-		})
+	var vec []float32
+	if vecs, err := activeEmbedder.Embed([]string{req.Query}); err == nil && len(vecs) > 0 {
+		vec = vecs[0]
+	} else if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"detail": "embed failed: " + err.Error()})
+		return
 	}
-	mu.RUnlock()
-	sort.Slice(results, func(i, j int) bool { return results[i].Score > results[j].Score })
-	if len(results) > req.TopK {
-		results = results[:req.TopK]
+	results, err := activeStore.Search(req.Query, vec, req.TopK, req.Filters)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"detail": "search failed: " + err.Error()})
+		return
+	}
+	if results == nil {
+		results = []SearchResult{}
 	}
 	writeJSON(w, http.StatusOK, SearchResponse{Results: results})
 }
 
 func handleDelete(w http.ResponseWriter, r *http.Request) {
 	docID := r.PathValue("doc_id")
-	mu.Lock()
-	deleted := 0
-	for cid, c := range index {
-		if c.docID == docID {
-			delete(index, cid)
-			deleted++
-		}
+	deleted, err := activeStore.Delete(docID)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"detail": "delete failed: " + err.Error()})
+		return
 	}
-	mu.Unlock()
 	if deleted == 0 {
 		writeJSON(w, http.StatusNotFound, map[string]string{"detail": "document not found"})
 		return
