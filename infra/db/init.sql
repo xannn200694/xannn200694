@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS messages (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     conversation_id     UUID REFERENCES conversations(id) ON DELETE CASCADE,
     direction           TEXT NOT NULL,            -- inbound | outbound
+    sender              TEXT,                     -- customer | bot | agent (для точной аналитики бот/человек)
     content_type        TEXT DEFAULT 'text',
     text                TEXT,
     provider_message_id TEXT,
@@ -57,6 +58,8 @@ CREATE TABLE IF NOT EXISTS prompts (
 CREATE INDEX IF NOT EXISTS idx_events_type_ts ON events (event_type, ts);
 CREATE INDEX IF NOT EXISTS idx_events_conversation ON events (conversation_id);
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages (conversation_id);
+CREATE INDEX IF NOT EXISTS idx_messages_conv_dir_ts ON messages (conversation_id, direction, ts);
+CREATE INDEX IF NOT EXISTS idx_conversations_created_channel ON conversations (created_at, channel);
 CREATE INDEX IF NOT EXISTS idx_contacts_phone ON contacts (phone);
 
 -- Базовый системный промпт для ассистента отдела продаж (черновик, калибруется в E1).

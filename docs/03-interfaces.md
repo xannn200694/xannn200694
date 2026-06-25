@@ -130,6 +130,11 @@ get_contact_by_phone(phone) -> contact | null
 
 Дашборды строятся поверх `events` (+ витрины/материализованные представления).
 
+Ожидаемые ключи `payload` (используются аналитикой E6):
+- `lead_created`: `{ "source": "...", "lead_id": "..." }`
+- `deal_stage_changed`: `{ "to_stage": "qualified|deal|won", "from_stage": "...", "deal_id": "..." }`
+- `llm_call`: `{ "model": "...", "prompt_tokens": 0, "completion_tokens": 0, "cost_usd": 0.0 }`
+
 ## 6. Схема БД (минимум, E0/E6)
 
 ```
