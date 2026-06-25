@@ -1,18 +1,22 @@
-// Channel Gateway (E3) — скелет по контракту §1 (docs/03-interfaces.md).
+// Channel Gateway (E3) — реализация по контракту §1 (docs/03-interfaces.md).
 //
 // Приём вебхуков Telegram/WhatsApp, нормализация в Canonical Message, идемпотентность,
-// быстрый автоответ через LLM Gateway. WhatsApp реализован через абстракцию провайдера
-// с двумя режимами (cloud_api | web_bridge, решение D2). Реальная отправка и верификация
-// подписей подключаются в эпике E3 (TODO).
+// быстрый автоответ через LLM Gateway, реальная отправка ответов и верификация подписей.
+// WhatsApp реализован через абстракцию провайдера с двумя режимами
+// (cloud_api | web_bridge, решение D2). Режим работы — APP_MODE (mock | real).
 package main
 
 import (
 	"bytes"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
@@ -56,7 +60,14 @@ type SendResult struct {
 var (
 	mu      sync.Mutex
 	seenIDs = map[string]struct{}{} // защита от дублей вебхуков (в проде — Redis/таблица)
+
+	// Общий HTTP-клиент для исходящих вызовов (Telegram/WhatsApp/n8n/LLM).
+	httpClient = &http.Client{Timeout: 8 * time.Second}
 )
+
+func init() {
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, nil)))
+}
 
 func env(key, def string) string {
 	if v := os.Getenv(key); v != "" {
@@ -64,6 +75,8 @@ func env(key, def string) string {
 	}
 	return def
 }
+
+func appMode() string { return env("APP_MODE", "mock") }
 
 func newID() string {
 	b := make([]byte, 16)
@@ -91,14 +104,25 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+// logEvent — событие аналитики (контракт §5) через slog (JSON).
+// TODO(E6): персист в таблицу events (нужен драйвер БД — см. отчёт).
+func logEvent(eventType string, msg CanonicalMessage, providerMsgID string) {
+	slog.Info(eventType,
+		"event_type", eventType,
+		"conversation_id", msg.ConversationID,
+		"channel", msg.Channel,
+		"provider_message_id", providerMsgID,
+		"ts", nowISO(),
+	)
+}
+
 // autoreply — быстрый автоответ через LLM Gateway (best-effort).
 func autoreply(msg CanonicalMessage) string {
 	body, _ := json.Marshal(map[string]any{
 		"conversation_id": msg.ConversationID,
 		"variables":       map[string]any{"user_message": msg.Content.Text},
 	})
-	client := &http.Client{Timeout: 8 * time.Second}
-	resp, err := client.Post(env("LLM_GATEWAY_URL", "http://mock-llm:8000")+"/v1/chat", "application/json", bytes.NewReader(body))
+	resp, err := httpClient.Post(env("LLM_GATEWAY_URL", "http://mock-llm:8000")+"/v1/chat", "application/json", bytes.NewReader(body))
 	if err != nil {
 		return ""
 	}
@@ -109,6 +133,170 @@ func autoreply(msg CanonicalMessage) string {
 	}
 	_ = json.Unmarshal(data, &parsed)
 	return parsed.Text
+}
+
+// forwardToN8N — пересылка нормализованного сообщения в n8n (best-effort).
+// Ошибки не должны ломать ответ вебхука.
+func forwardToN8N(msg CanonicalMessage) {
+	base := env("N8N_WEBHOOK_BASE", "")
+	if base == "" {
+		return
+	}
+	body, _ := json.Marshal(msg)
+	resp, err := httpClient.Post(base+"/webhook/new-lead", "application/json", bytes.NewReader(body))
+	if err != nil {
+		slog.Warn("n8n forward failed", "error", err.Error())
+		return
+	}
+	_ = resp.Body.Close()
+}
+
+// --- Telegram Bot API ---
+
+// sendTelegram отправляет текст через Bot API (sendMessage) и возвращает provider_message_id.
+func sendTelegram(chatID, text string) (string, error) {
+	base := env("TELEGRAM_BASE_URL", "https://api.telegram.org")
+	token := env("TELEGRAM_BOT_TOKEN", "")
+	body, _ := json.Marshal(map[string]any{"chat_id": chatID, "text": text})
+	resp, err := httpClient.Post(base+"/bot"+token+"/sendMessage", "application/json", bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 300 {
+		return "", fmt.Errorf("telegram api status %d: %s", resp.StatusCode, string(data))
+	}
+	var parsed struct {
+		OK     bool `json:"ok"`
+		Result struct {
+			MessageID any `json:"message_id"`
+		} `json:"result"`
+	}
+	_ = json.Unmarshal(data, &parsed)
+	if !parsed.OK {
+		return "", fmt.Errorf("telegram api not ok: %s", string(data))
+	}
+	return numToString(parsed.Result.MessageID), nil
+}
+
+// --- Абстракция WhatsApp-провайдера (решение D2) ---
+
+// WAProvider — общий контракт отправки для всех WhatsApp-реализаций.
+type WAProvider interface {
+	Send(to, text string) (providerMsgID string, err error)
+}
+
+// waProvider выбирает реализацию по WA_MODE (cloud_api | web_bridge).
+func waProvider() WAProvider {
+	switch env("WA_MODE", "web_bridge") {
+	case "cloud_api":
+		return CloudAPIProvider{}
+	default:
+		return WebBridgeProvider{}
+	}
+}
+
+// CloudAPIProvider — официальный WhatsApp Cloud API (верифицированный режим).
+type CloudAPIProvider struct{}
+
+func (CloudAPIProvider) Send(to, text string) (string, error) {
+	base := env("WA_CLOUD_BASE_URL", "https://graph.facebook.com/v20.0")
+	url := base + "/" + env("WA_CLOUD_PHONE_ID", "") + "/messages"
+	body, _ := json.Marshal(map[string]any{
+		"messaging_product": "whatsapp",
+		"to":                to,
+		"type":              "text",
+		"text":              map[string]any{"body": text},
+	})
+	req, _ := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+env("WA_CLOUD_TOKEN", ""))
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 300 {
+		return "", fmt.Errorf("wa cloud api status %d: %s", resp.StatusCode, string(data))
+	}
+	var parsed struct {
+		Messages []struct {
+			ID string `json:"id"`
+		} `json:"messages"`
+	}
+	_ = json.Unmarshal(data, &parsed)
+	if len(parsed.Messages) > 0 {
+		return parsed.Messages[0].ID, nil
+	}
+	return "", nil
+}
+
+// WebBridgeProvider — мост WhatsApp Web (WAHA/Evolution-подобный, неверифицированный режим).
+type WebBridgeProvider struct{}
+
+func (WebBridgeProvider) Send(to, text string) (string, error) {
+	base := env("WA_BRIDGE_URL", "http://wa-bridge:3000")
+	url := base + "/api/sendText"
+	body, _ := json.Marshal(map[string]any{
+		"session": env("WA_BRIDGE_SESSION", "default"),
+		"chatId":  to,
+		"text":    text,
+	})
+	req, _ := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	if key := env("WA_BRIDGE_API_KEY", ""); key != "" {
+		req.Header.Set("X-Api-Key", key)
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 300 {
+		return "", fmt.Errorf("wa bridge status %d: %s", resp.StatusCode, string(data))
+	}
+	// Мосты возвращают разные формы id; пытаемся вытащить, иначе генерируем локальный.
+	var parsed struct {
+		ID  string `json:"id"`
+		Key struct {
+			ID string `json:"id"`
+		} `json:"key"`
+	}
+	_ = json.Unmarshal(data, &parsed)
+	if parsed.ID != "" {
+		return parsed.ID, nil
+	}
+	if parsed.Key.ID != "" {
+		return parsed.Key.ID, nil
+	}
+	return newID(), nil
+}
+
+// --- Верификация подписей вебхуков ---
+
+// verifyTelegram сверяет секретный токен вебхука (если задан TELEGRAM_WEBHOOK_SECRET).
+func verifyTelegram(r *http.Request) bool {
+	secret := env("TELEGRAM_WEBHOOK_SECRET", "")
+	if secret == "" {
+		return true
+	}
+	return r.Header.Get("X-Telegram-Bot-Api-Secret-Token") == secret
+}
+
+// verifyWhatsApp сверяет HMAC SHA-256 подпись Cloud API (если задан WA_APP_SECRET).
+func verifyWhatsApp(r *http.Request, raw []byte) bool {
+	secret := env("WA_APP_SECRET", "")
+	if secret == "" {
+		return true
+	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write(raw)
+	expected := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+	got := r.Header.Get("X-Hub-Signature-256")
+	return hmac.Equal([]byte(expected), []byte(got))
 }
 
 // --- Нормализация ---
@@ -182,6 +370,8 @@ func numToString(v any) string {
 	switch n := v.(type) {
 	case float64:
 		return strconv.FormatInt(int64(n), 10)
+	case json.Number:
+		return n.String()
 	case string:
 		return n
 	default:
@@ -201,17 +391,22 @@ func router() *http.ServeMux {
 
 func main() {
 	addr := ":" + env("PORT", "8000")
-	log.Printf("channel-gateway listening on %s (wa_mode=%s)", addr, env("WA_MODE", "web_bridge"))
+	log.Printf("channel-gateway listening on %s (app_mode=%s wa_mode=%s)", addr, appMode(), env("WA_MODE", "web_bridge"))
 	log.Fatal(http.ListenAndServe(addr, router()))
 }
 
 func handleHealth(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "mode": env("APP_MODE", "mock"), "wa_mode": env("WA_MODE", "web_bridge")})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "mode": appMode(), "wa_mode": env("WA_MODE", "web_bridge")})
 }
 
 func handleTelegram(w http.ResponseWriter, r *http.Request) {
+	if !verifyTelegram(r) {
+		writeJSON(w, http.StatusForbidden, map[string]string{"detail": "invalid secret token"})
+		return
+	}
+	raw, _ := io.ReadAll(r.Body)
 	var update map[string]any
-	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
+	if err := json.Unmarshal(raw, &update); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"detail": "invalid json"})
 		return
 	}
@@ -220,8 +415,17 @@ func handleTelegram(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ignored"})
 		return
 	}
-	// TODO(E3): отправить reply в Telegram + переслать msg в n8n + записать events.
-	writeJSON(w, http.StatusOK, map[string]string{"status": "accepted", "conversation_id": msg.ConversationID, "reply": autoreply(msg)})
+	logEvent("message_received", msg, "")
+	forwardToN8N(msg)
+	reply := autoreply(msg)
+	if appMode() == "real" && reply != "" {
+		if pmid, err := sendTelegram(msg.ConversationID, reply); err != nil {
+			slog.Error("telegram send failed", "conversation_id", msg.ConversationID, "error", err.Error())
+		} else {
+			logEvent("message_sent", CanonicalMessage{Channel: "telegram", ConversationID: msg.ConversationID}, pmid)
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "accepted", "conversation_id": msg.ConversationID, "reply": reply})
 }
 
 func handleWhatsAppVerify(w http.ResponseWriter, r *http.Request) {
@@ -235,8 +439,13 @@ func handleWhatsAppVerify(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleWhatsApp(w http.ResponseWriter, r *http.Request) {
+	raw, _ := io.ReadAll(r.Body)
+	if !verifyWhatsApp(r, raw) {
+		writeJSON(w, http.StatusForbidden, map[string]string{"detail": "invalid signature"})
+		return
+	}
 	var body map[string]any
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := json.Unmarshal(raw, &body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"detail": "invalid json"})
 		return
 	}
@@ -245,7 +454,17 @@ func handleWhatsApp(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ignored"})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "accepted", "conversation_id": msg.ConversationID, "reply": autoreply(msg)})
+	logEvent("message_received", msg, "")
+	forwardToN8N(msg)
+	reply := autoreply(msg)
+	if appMode() == "real" && reply != "" {
+		if pmid, err := waProvider().Send(msg.ConversationID, reply); err != nil {
+			slog.Error("whatsapp send failed", "conversation_id", msg.ConversationID, "error", err.Error())
+		} else {
+			logEvent("message_sent", CanonicalMessage{Channel: "whatsapp", ConversationID: msg.ConversationID}, pmid)
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "accepted", "conversation_id": msg.ConversationID, "reply": reply})
 }
 
 func handleSend(w http.ResponseWriter, r *http.Request) {
@@ -254,6 +473,32 @@ func handleSend(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"detail": "invalid json"})
 		return
 	}
-	// TODO(E3): реальная отправка через Telegram Bot API или WhatsApp-провайдера (WA_MODE).
-	writeJSON(w, http.StatusOK, SendResult{Status: "queued", ProviderMessageID: newID()})
+	// В mock-режиме сеть не трогаем — сообщение «поставлено в очередь».
+	if appMode() != "real" {
+		writeJSON(w, http.StatusOK, SendResult{Status: "queued", ProviderMessageID: newID()})
+		return
+	}
+	var (
+		pmid string
+		err  error
+	)
+	switch msg.Channel {
+	case "telegram":
+		pmid, err = sendTelegram(msg.ConversationID, msg.Content.Text)
+	case "whatsapp":
+		to := msg.Contact.Phone
+		if to == "" {
+			to = msg.ConversationID
+		}
+		pmid, err = waProvider().Send(to, msg.Content.Text)
+	default:
+		writeJSON(w, http.StatusBadRequest, SendResult{Status: "failed", Error: "unknown channel: " + msg.Channel})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, SendResult{Status: "failed", Error: err.Error()})
+		return
+	}
+	logEvent("message_sent", msg, pmid)
+	writeJSON(w, http.StatusOK, SendResult{Status: "sent", ProviderMessageID: pmid})
 }

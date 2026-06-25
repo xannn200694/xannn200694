@@ -19,8 +19,22 @@ go test ./...
 - `GET /webhooks/whatsapp` (verify), `POST /webhooks/whatsapp`
 - `POST /send`
 
-## TODO (эпик E3)
-- Реальная отправка в Telegram Bot API.
-- Реализации WhatsApp: Cloud API (верифиц.) и web-bridge WAHA/Evolution (неверифиц.).
-- Верификация подписей вебхуков, шаблоны (HSM), статусы доставки.
-- Пересылка в n8n и запись событий `message_received`/`message_sent`.
+## Режимы (APP_MODE)
+- `mock` (по умолчанию) — оффлайн, `/send` возвращает `queued` без сети.
+- `real` — реальные вызовы Telegram Bot API / WhatsApp-провайдера.
+
+## Реализовано (эпик E3)
+- Реальная отправка в Telegram Bot API (`sendMessage`), база переопределяется `TELEGRAM_BASE_URL`.
+- WhatsApp через абстракцию `WAProvider` с выбором по `WA_MODE`:
+  - `cloud_api` — WhatsApp Cloud API (`WA_CLOUD_BASE_URL`, Bearer-токен);
+  - `web_bridge` — мост WAHA/Evolution-подобный (`WA_BRIDGE_URL`, `X-Api-Key`).
+- Верификация подписей вебхуков: Telegram secret-token (`X-Telegram-Bot-Api-Secret-Token`),
+  WhatsApp Cloud HMAC SHA-256 (`X-Hub-Signature-256`).
+- Пересылка нормализованного сообщения в n8n (`POST $N8N_WEBHOOK_BASE/webhook/new-lead`, best-effort).
+- События `message_received` / `message_sent` через `log/slog` (JSON).
+- `/send` диспетчеризует по `channel`.
+
+## TODO
+- Персист событий/сообщений в PostgreSQL (`events`, `messages`) — нужен драйвер БД (вне stdlib).
+- Шаблоны (HSM) для исходящих вне 24-часового окна (Cloud API), статусы доставки и ретраи.
+- Медиа (image/document/audio) в нормализации и отправке.

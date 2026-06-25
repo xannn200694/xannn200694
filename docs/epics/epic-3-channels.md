@@ -3,6 +3,7 @@
 **Цель:** приём и отправка сообщений в WhatsApp и Telegram, нормализация в Canonical Message, мгновенный автоответ 24/7.
 **Можно стартовать:** Telegram — сразу; WhatsApp — после получения доступа к Business API.
 **Milestones:** M3 (Telegram), M4 (WhatsApp).
+**Статус:** ✅ реализовано — реальная отправка Telegram, WhatsApp-провайдеры (cloud_api/web_bridge), верификация подписей (HMAC/secret), форвард в n8n, события (slog). TODO: персист событий в БД.
 
 ## Задачи
 1. Channel Gateway (Go 1.26) по контракту §1 ([`../03-interfaces.md`](../03-interfaces.md)).
