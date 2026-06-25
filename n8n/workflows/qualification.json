@@ -1,0 +1,165 @@
+{
+  "name": "E4 — Qualification",
+  "active": false,
+  "settings": {},
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "qualify",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "node-qualify-webhook",
+      "name": "Webhook Qualification",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 320],
+      "webhookId": "qualify"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://llm-gateway:8000/v1/classify",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={ \"conversation_id\": \"{{ $('Webhook Qualification').item.json.body.conversation_id }}\", \"variables\": { \"user_message\": \"{{ $('Webhook Qualification').item.json.body.content.text }}\" } }",
+        "options": {}
+      },
+      "id": "node-classify",
+      "name": "Classify",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 320]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "loose", "version": 2 },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "cond-hot",
+              "leftValue": "={{ $json.lead_score }}",
+              "rightValue": 70,
+              "operator": { "type": "number", "operation": "gte" }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-is-hot",
+      "name": "Is Hot",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [720, 320]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "loose", "version": 2 },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "cond-warm",
+              "leftValue": "={{ $json.lead_score }}",
+              "rightValue": 40,
+              "operator": { "type": "number", "operation": "gte" }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-is-warm",
+      "name": "Is Warm",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [960, 460]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "a-prio-high", "name": "priority", "value": "high", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-prio-high",
+      "name": "Set Priority High",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [960, 180]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "a-prio-medium", "name": "priority", "value": "medium", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-prio-medium",
+      "name": "Set Priority Medium",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1200, 380]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "a-prio-low", "name": "priority", "value": "low", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-prio-low",
+      "name": "Set Priority Low",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1200, 540]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://crm-connector:8000/v1/tasks",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={ \"assignee\": \"sales_manager\", \"text\": \"Горячий лид (score {{ $('Classify').item.json.lead_score }}), требуется быстрый контакт\", \"related_id\": \"{{ $('Webhook Qualification').item.json.body.conversation_id }}\", \"due_at\": \"{{ $now.plus(1, 'hours').toISO() }}\" }",
+        "options": {}
+      },
+      "id": "node-create-task",
+      "name": "Create Hot Lead Task",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1200, 180]
+    }
+  ],
+  "connections": {
+    "Webhook Qualification": {
+      "main": [[{ "node": "Classify", "type": "main", "index": 0 }]]
+    },
+    "Classify": {
+      "main": [[{ "node": "Is Hot", "type": "main", "index": 0 }]]
+    },
+    "Is Hot": {
+      "main": [
+        [{ "node": "Set Priority High", "type": "main", "index": 0 }],
+        [{ "node": "Is Warm", "type": "main", "index": 0 }]
+      ]
+    },
+    "Is Warm": {
+      "main": [
+        [{ "node": "Set Priority Medium", "type": "main", "index": 0 }],
+        [{ "node": "Set Priority Low", "type": "main", "index": 0 }]
+      ]
+    },
+    "Set Priority High": {
+      "main": [[{ "node": "Create Hot Lead Task", "type": "main", "index": 0 }]]
+    }
+  }
+}

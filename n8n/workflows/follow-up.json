@@ -1,0 +1,63 @@
+{
+  "name": "E4 — Follow-up",
+  "active": false,
+  "settings": {},
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "hours", "hoursInterval": 1 }
+          ]
+        }
+      },
+      "id": "node-schedule",
+      "name": "Every Hour",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "a-conv", "name": "conversation_id", "value": "conv-demo-001", "type": "string" },
+            { "id": "a-channel", "name": "channel", "value": "telegram", "type": "string" },
+            { "id": "a-extid", "name": "contact_external_id", "value": "tg-12345", "type": "string" },
+            { "id": "a-hours", "name": "hours_since_reply", "value": 24, "type": "number" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-stub-fetch",
+      "name": "Stub No-Reply Leads",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://channel-gateway:8000/send",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={ \"channel\": \"{{ $json.channel }}\", \"direction\": \"outbound\", \"conversation_id\": \"{{ $json.conversation_id }}\", \"contact\": { \"external_id\": \"{{ $json.contact_external_id }}\" }, \"content\": { \"type\": \"text\", \"text\": \"Здравствуйте! Мы не получили ответа. Подскажите, актуален ли ещё ваш запрос?\" } }",
+        "options": {}
+      },
+      "id": "node-send-followup",
+      "name": "Send Follow-up",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 300]
+    }
+  ],
+  "connections": {
+    "Every Hour": {
+      "main": [[{ "node": "Stub No-Reply Leads", "type": "main", "index": 0 }]]
+    },
+    "Stub No-Reply Leads": {
+      "main": [[{ "node": "Send Follow-up", "type": "main", "index": 0 }]]
+    }
+  }
+}

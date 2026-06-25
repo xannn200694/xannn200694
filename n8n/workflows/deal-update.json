@@ -1,0 +1,89 @@
+{
+  "name": "E4 — Deal Update",
+  "active": false,
+  "settings": {},
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "crm-update",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "node-crm-update-webhook",
+      "name": "Webhook CRM Update",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "crm-update"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "loose", "version": 2 },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "cond-stage",
+              "leftValue": "={{ $json.body.stage }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "notEmpty", "singleValue": true }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-stage-provided",
+      "name": "Stage Provided",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://crm-connector:8000/v1/deals/{{ $('Webhook CRM Update').item.json.body.deal_id }}/stage",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={ \"stage\": \"{{ $('Webhook CRM Update').item.json.body.stage }}\" }",
+        "options": {}
+      },
+      "id": "node-update-stage",
+      "name": "Update Deal Stage",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://crm-connector:8000/v1/notes",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={ \"entity_id\": \"{{ $('Webhook CRM Update').item.json.body.deal_id }}\", \"text\": \"Обновление из CRM: {{ $('Webhook CRM Update').item.json.body.event_type }}\" }",
+        "options": {}
+      },
+      "id": "node-add-note",
+      "name": "Add Note",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [960, 300]
+    }
+  ],
+  "connections": {
+    "Webhook CRM Update": {
+      "main": [[{ "node": "Stage Provided", "type": "main", "index": 0 }]]
+    },
+    "Stage Provided": {
+      "main": [
+        [{ "node": "Update Deal Stage", "type": "main", "index": 0 }],
+        [{ "node": "Add Note", "type": "main", "index": 0 }]
+      ]
+    },
+    "Update Deal Stage": {
+      "main": [[{ "node": "Add Note", "type": "main", "index": 0 }]]
+    }
+  }
+}

@@ -1,0 +1,99 @@
+{
+  "name": "E4 — New Lead",
+  "active": false,
+  "settings": {},
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "new-lead",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "node-new-lead-webhook",
+      "name": "Webhook New Lead",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "new-lead"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://crm-connector:8000/v1/contacts/upsert",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={ \"external_id\": \"{{ $json.body.contact.external_id }}\", \"channel\": \"{{ $json.body.channel }}\", \"phone\": \"{{ $json.body.contact.phone }}\", \"username\": \"{{ $json.body.contact.username }}\", \"display_name\": \"{{ $json.body.contact.display_name }}\" }",
+        "options": {}
+      },
+      "id": "node-upsert-contact",
+      "name": "Upsert Contact",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://llm-gateway:8000/v1/chat",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={ \"prompt_id\": \"sales_reply\", \"prompt_version\": \"latest\", \"model\": \"auto\", \"conversation_id\": \"{{ $('Webhook New Lead').item.json.body.conversation_id }}\", \"variables\": { \"user_message\": \"{{ $('Webhook New Lead').item.json.body.content.text }}\" } }",
+        "options": {}
+      },
+      "id": "node-llm-chat",
+      "name": "LLM Chat",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://channel-gateway:8000/send",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={ \"channel\": \"{{ $('Webhook New Lead').item.json.body.channel }}\", \"direction\": \"outbound\", \"conversation_id\": \"{{ $('Webhook New Lead').item.json.body.conversation_id }}\", \"contact\": { \"external_id\": \"{{ $('Webhook New Lead').item.json.body.contact.external_id }}\" }, \"content\": { \"type\": \"text\", \"text\": \"{{ $json.text }}\" } }",
+        "options": {}
+      },
+      "id": "node-send-reply",
+      "name": "Send Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [960, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://crm-connector:8000/v1/leads/upsert",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={ \"external_id\": \"{{ $('Webhook New Lead').item.json.body.contact.external_id }}\", \"conversation_id\": \"{{ $('Webhook New Lead').item.json.body.conversation_id }}\", \"channel\": \"{{ $('Webhook New Lead').item.json.body.channel }}\", \"source\": \"{{ $('Webhook New Lead').item.json.body.channel }}\", \"status\": \"new\" }",
+        "options": {}
+      },
+      "id": "node-upsert-lead",
+      "name": "Upsert Lead",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1200, 300]
+    }
+  ],
+  "connections": {
+    "Webhook New Lead": {
+      "main": [[{ "node": "Upsert Contact", "type": "main", "index": 0 }]]
+    },
+    "Upsert Contact": {
+      "main": [[{ "node": "LLM Chat", "type": "main", "index": 0 }]]
+    },
+    "LLM Chat": {
+      "main": [[{ "node": "Send Reply", "type": "main", "index": 0 }]]
+    },
+    "Send Reply": {
+      "main": [[{ "node": "Upsert Lead", "type": "main", "index": 0 }]]
+    }
+  }
+}

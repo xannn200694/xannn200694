@@ -1,0 +1,109 @@
+{
+  "name": "E4 — Escalation",
+  "active": false,
+  "settings": {},
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "escalate",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "node-escalate-webhook",
+      "name": "Webhook Escalation",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "escalate"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "loose", "version": 2 },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "cond-escalate",
+              "leftValue": "={{ $json.body.should_escalate }}",
+              "rightValue": "",
+              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-should-escalate",
+      "name": "Should Escalate",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://crm-connector:8000/v1/tasks",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={ \"assignee\": \"manager\", \"text\": \"Эскалация диалога {{ $json.body.conversation_id }}: требуется вмешательство менеджера\", \"related_id\": \"{{ $json.body.conversation_id }}\", \"due_at\": \"{{ $now.plus(30, 'minutes').toISO() }}\" }",
+        "options": {}
+      },
+      "id": "node-manager-task",
+      "name": "Create Manager Task",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 220]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "a-notify-type", "name": "notification_type", "value": "escalation", "type": "string" },
+            { "id": "a-notify-conv", "name": "conversation_id", "value": "={{ $('Webhook Escalation').item.json.body.conversation_id }}", "type": "string" },
+            { "id": "a-notify-text", "name": "text", "value": "=Диалог {{ $('Webhook Escalation').item.json.body.conversation_id }} эскалирован менеджеру", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-notify",
+      "name": "Build Notification",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [960, 220]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://crm-connector:8000/v1/deals/{{ $('Webhook Escalation').item.json.body.deal_id }}/stage",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={ \"stage\": \"manager_review\" }",
+        "options": {}
+      },
+      "id": "node-update-stage",
+      "name": "Update Deal Stage",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1200, 220]
+    }
+  ],
+  "connections": {
+    "Webhook Escalation": {
+      "main": [[{ "node": "Should Escalate", "type": "main", "index": 0 }]]
+    },
+    "Should Escalate": {
+      "main": [
+        [{ "node": "Create Manager Task", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Create Manager Task": {
+      "main": [[{ "node": "Build Notification", "type": "main", "index": 0 }]]
+    },
+    "Build Notification": {
+      "main": [[{ "node": "Update Deal Stage", "type": "main", "index": 0 }]]
+    }
+  }
+}
