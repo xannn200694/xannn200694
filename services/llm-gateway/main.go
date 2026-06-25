@@ -188,53 +188,100 @@ func handleChat(w http.ResponseWriter, r *http.Request) {
 	if req.PromptID == "" {
 		req.PromptID = "sales_assistant"
 	}
-	if _, ok := prompts[req.PromptID]; !ok {
+	p, ok := prompts[req.PromptID]
+	if !ok {
 		writeJSON(w, http.StatusNotFound, map[string]string{"detail": "unknown prompt_id"})
 		return
 	}
 
+	if req.Variables == nil {
+		req.Variables = map[string]any{}
+	}
 	userMessage, _ := req.Variables["user_message"].(string)
 	userMessage = strings.TrimSpace(userMessage)
-	lower := strings.ToLower(userMessage)
-	shouldEscalate := false
-	for _, k := range escalationKeywords {
-		if strings.Contains(lower, k) {
-			shouldEscalate = true
-			break
-		}
-	}
+	shouldEscalate := escalate(strings.ToLower(userMessage))
 
 	kbContext, _ := req.Variables["kb_context"].(string)
 	if kbContext == "" {
 		kbContext = fetchKBContext(userMessage)
 	}
 
-	// TODO(E1): реальный вызов провайдера LLM (OpenAI/Anthropic) с промптом и контекстом.
-	var text string
-	var confidence float64
-	if kbContext != "" {
-		if len(kbContext) > 280 {
-			kbContext = kbContext[:280]
-		}
-		text = "(черновой ответ по базе знаний) " + kbContext
-		confidence = 0.8
-	} else if shouldEscalate {
-		text = "Передаю ваш вопрос менеджеру — он скоро свяжется с вами."
-		confidence = 0.4
-	} else {
-		text = "Спасибо за обращение! Сейчас уточню информацию и вернусь с ответом."
-		confidence = 0.4
+	tier := "cheap"
+	if t, ok := p.ModelDefaults["tier"].(string); ok && t != "" {
+		tier = t
 	}
+	model := selectModel(req.Model, tier)
+
+	temperature := req.Temperature
+	if temperature == 0 {
+		if t, ok := p.ModelDefaults["temperature"].(float64); ok {
+			temperature = t
+		} else {
+			temperature = 0.2
+		}
+	}
+	maxTokens := req.MaxTokens
+	if maxTokens == 0 {
+		maxTokens = 1024
+	}
+
+	system := renderPrompt(p.Body, req.Variables)
+	opts := ChatOpts{Model: model, Temperature: temperature, MaxTokens: maxTokens}
+
+	text, usage, usedModel, err := generateChat(system, userMessage, kbContext, opts)
+
+	finishReason := "stop"
+	var confidence float64
+	switch {
+	case err != nil:
+		// Фолбэк не сработал: вежливый ответ с эскалацией.
+		text = "Извините, не удалось обработать запрос автоматически. Передаю ваш вопрос менеджеру."
+		confidence = 0.3
+		shouldEscalate = true
+		finishReason = "error"
+		usage = ProviderUsage{
+			PromptTokens:     len(strings.Fields(userMessage)),
+			CompletionTokens: len(strings.Fields(text)),
+		}
+	case kbContext != "":
+		confidence = 0.8
+	case mockMode():
+		confidence = 0.4
+	default:
+		confidence = 0.7
+	}
+
+	cost := costUSD(usedModel, usage)
+	traceID := newID()
+	eventSink.Emit(LLMEvent{
+		ConversationID:   req.ConversationID,
+		Model:            usedModel,
+		PromptTokens:     usage.PromptTokens,
+		CompletionTokens: usage.CompletionTokens,
+		CostUSD:          cost,
+		TraceID:          traceID,
+		TS:               time.Now(),
+	})
 
 	writeJSON(w, http.StatusOK, ChatResponse{
 		Text:           text,
-		ModelUsed:      selectModel(req.Model, "cheap"),
-		FinishReason:   "stop",
+		ModelUsed:      usedModel,
+		FinishReason:   finishReason,
 		Confidence:     confidence,
 		ShouldEscalate: shouldEscalate || confidence < 0.5,
-		Usage:          Usage{PromptTokens: len(strings.Fields(userMessage)), CompletionTokens: len(strings.Fields(text))},
-		TraceID:        newID(),
+		Usage:          Usage{PromptTokens: usage.PromptTokens, CompletionTokens: usage.CompletionTokens, CostUSD: cost},
+		TraceID:        traceID,
 	})
+}
+
+// escalate проверяет наличие ключевых слов эскалации в нижнерегистровой строке.
+func escalate(lower string) bool {
+	for _, k := range escalationKeywords {
+		if strings.Contains(lower, k) {
+			return true
+		}
+	}
+	return false
 }
 
 func handleClassify(w http.ResponseWriter, r *http.Request) {
@@ -243,15 +290,70 @@ func handleClassify(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"detail": "invalid json"})
 		return
 	}
-	text := strings.ToLower(req.Text)
-	intent, score := "question", 0.5
+	// В real-режиме пробуем LLM-классификацию, при ошибке — эвристика.
+	if !mockMode() {
+		if intent, score, err := classifyWithLLM(req.Text); err == nil {
+			writeJSON(w, http.StatusOK, ClassifyResponse{Intent: intent, LeadScore: score, TraceID: newID()})
+			return
+		}
+	}
+	intent, score := heuristicClassify(req.Text)
+	writeJSON(w, http.StatusOK, ClassifyResponse{Intent: intent, LeadScore: score, TraceID: newID()})
+}
+
+// heuristicClassify — эвристическая классификация намерения (mock и фолбэк).
+func heuristicClassify(in string) (string, float64) {
+	text := strings.ToLower(in)
 	switch {
 	case containsAny(text, "купить", "цена", "стоит", "заказать", "buy", "price"):
-		intent, score = "purchase_intent", 0.8
+		return "purchase_intent", 0.8
+	case containsAny(text, "жалоб", "не работает", "верните", "complaint", "refund"):
+		return "complaint", 0.3
 	case containsAny(text, "привет", "здравствуйте", "hello", "hi"):
-		intent, score = "greeting", 0.2
+		return "greeting", 0.2
+	default:
+		return "question", 0.5
 	}
-	writeJSON(w, http.StatusOK, ClassifyResponse{Intent: intent, LeadScore: score, TraceID: newID()})
+}
+
+var classifyIntents = map[string]bool{
+	"greeting": true, "question": true, "purchase_intent": true,
+	"complaint": true, "other": true,
+}
+
+// classifyWithLLM запрашивает у LLM строгий JSON {intent, lead_score}.
+func classifyWithLLM(text string) (string, float64, error) {
+	system := "Ты классификатор сообщений клиентов отдела продаж. " +
+		"Верни СТРОГО JSON без пояснений в формате {\"intent\":\"...\",\"lead_score\":0.0}. " +
+		"intent одно из: greeting, question, purchase_intent, complaint, other. " +
+		"lead_score — число от 0 до 1 (вероятность покупки)."
+	opts := ChatOpts{Model: env("LLM_MODEL_CHEAP", "gpt-4o-mini"), Temperature: 0, MaxTokens: 64}
+	out, _, _, err := generateChat(system, text, "", opts)
+	if err != nil {
+		return "", 0, err
+	}
+	s := strings.TrimSpace(out)
+	if i := strings.Index(s, "{"); i >= 0 {
+		if j := strings.LastIndex(s, "}"); j >= i {
+			s = s[i : j+1]
+		}
+	}
+	var parsed struct {
+		Intent    string  `json:"intent"`
+		LeadScore float64 `json:"lead_score"`
+	}
+	if err := json.Unmarshal([]byte(s), &parsed); err != nil {
+		return "", 0, err
+	}
+	if !classifyIntents[parsed.Intent] {
+		return "", 0, fmt.Errorf("classify: unknown intent %q", parsed.Intent)
+	}
+	if parsed.LeadScore < 0 {
+		parsed.LeadScore = 0
+	} else if parsed.LeadScore > 1 {
+		parsed.LeadScore = 1
+	}
+	return parsed.Intent, parsed.LeadScore, nil
 }
 
 func containsAny(s string, subs ...string) bool {

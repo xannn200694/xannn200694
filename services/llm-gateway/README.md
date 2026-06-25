@@ -17,8 +17,18 @@ go test ./...
 - `POST /v1/classify`
 - `GET /v1/prompts`, `GET /v1/prompts/{id}`
 
+## Провайдеры LLM
+- Общий интерфейс `Provider` (`provider.go`): `Chat(system, user, kbContext, opts)`.
+- `OpenAIProvider` — `POST {OPENAI_BASE_URL}/chat/completions`, `Authorization: Bearer`.
+- `AnthropicProvider` — `POST {ANTHROPIC_BASE_URL}/v1/messages`, `x-api-key` + `anthropic-version`.
+- `MockProvider` — детерминированное оффлайн-поведение (`APP_MODE=mock`).
+- Семейство по префиксу модели: `gpt`/`o`/`text-` → OpenAI; `claude` → Anthropic.
+- Фолбэк: при ошибке основного провайдера в real-режиме пробуется второй (если задан ключ),
+  иначе — вежливый ответ с `should_escalate=true`.
+- Стоимость (`pricing.go`): таблица per-1K-tokens для известных моделей; неизвестная → 0.
+- События (`events.go`): `EventSink`/`StdoutSink` пишет `llm_call` в JSON через `log/slog`.
+
 ## TODO (эпик E1)
-- Реальные адаптеры OpenAI и Anthropic за общим интерфейсом + фолбэк.
-- Чтение/версионирование промптов из таблицы `prompts` (PostgreSQL).
-- LLM-классификация намерения и lead_score вместо эвристики.
-- Запись события `llm_call` (usage/cost) в таблицу `events`.
+- Чтение/версионирование промптов из таблицы `prompts` (PostgreSQL) — требует драйвера БД.
+- Персист события `llm_call` (usage/cost) в таблицу `events` — `EventSink` уже готов как точка
+  расширения; драйвер БД добавим отдельным шагом (внешняя зависимость).
