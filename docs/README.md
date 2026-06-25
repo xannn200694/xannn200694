@@ -16,6 +16,7 @@
 | [`03-interfaces.md`](03-interfaces.md) | Интерфейсные контракты (API, схемы событий) — «швы» для параллельной работы |
 | [`04-parallel-plan.md`](04-parallel-plan.md) | План параллельного выполнения: эпики, граф зависимостей, milestones, последовательность |
 | [`05-open-questions.md`](05-open-questions.md) | Открытые вопросы заказчику и принятые допущения |
+| [`06-decisions.md`](06-decisions.md) | Принятые решения (CRM, WhatsApp, хостинг, LLM, база знаний) |
 | [`epics/`](epics/) | Детальные карточки эпиков с задачами и критериями приёмки |
 
 ## Эпики (потоки параллельной работы)
@@ -31,5 +32,5 @@
 | E6 | Аналитика и дашборды | [`epics/epic-6-analytics.md`](epics/epic-6-analytics.md) | Сразу (по контракту) |
 | E7 | QA, наблюдаемость, безопасность | [`epics/epic-7-qa-security.md`](epics/epic-7-qa-security.md) | Параллельно со всеми |
 
-> ⚠️ Перед стартом разработки нужно закрыть **блокирующие** открытые вопросы из
-> [`05-open-questions.md`](05-open-questions.md) (выбор CRM, провайдер WhatsApp, хостинг, провайдер LLM).
+> ✅ Ключевые решения приняты (CRM, WhatsApp, хостинг, LLM, база знаний) — см. [`06-decisions.md`](06-decisions.md).
+> Остались уточнения по доступам/данным — см. [`05-open-questions.md`](05-open-questions.md).
