@@ -1,0 +1,119 @@
+name: kivano-ai-sales
+
+# Фундамент платформы (E0 / M0). Поднимает инфраструктуру, сервисы-скелеты и моки границ.
+# Запуск: cp .env.example .env && docker compose up --build
+
+x-service-base: &service-base
+  env_file: .env
+  restart: unless-stopped
+  networks: [kivano]
+
+services:
+  # ----------------------- Инфраструктура -----------------------
+  postgres:
+    image: postgres:16-alpine
+    <<: *service-base
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    <<: *service-base
+    volumes:
+      - qdrantdata:/qdrant/storage
+    ports: ["6333:6333"]
+
+  # ----------------------- Наши сервисы -----------------------
+  llm-gateway:
+    <<: *service-base
+    build: ./services/llm-gateway
+    depends_on: { postgres: { condition: service_healthy } }
+    ports: ["8001:8000"]
+
+  rag:
+    <<: *service-base
+    build: ./services/rag
+    depends_on: { qdrant: { condition: service_started } }
+    ports: ["8002:8000"]
+
+  channel-gateway:
+    <<: *service-base
+    build: ./services/channel-gateway
+    depends_on: { postgres: { condition: service_healthy } }
+    ports: ["8003:8000"]
+
+  crm-connector:
+    <<: *service-base
+    build: ./services/crm-connector
+    depends_on: { postgres: { condition: service_healthy } }
+    ports: ["8004:8000"]
+
+  # ----------------------- Моки границ -----------------------
+  mock-llm:
+    <<: *service-base
+    build: ./mocks/mock-llm
+    ports: ["9001:8000"]
+
+  mock-rag:
+    <<: *service-base
+    build: ./mocks/mock-rag
+    ports: ["9002:8000"]
+
+  mock-crm:
+    <<: *service-base
+    build: ./mocks/mock-crm
+    ports: ["9003:8000"]
+
+  # ----------------------- Оркестрация и аналитика -----------------------
+  n8n:
+    image: n8nio/n8n:latest
+    <<: *service-base
+    environment:
+      N8N_BASIC_AUTH_ACTIVE: ${N8N_BASIC_AUTH_ACTIVE}
+      N8N_BASIC_AUTH_USER: ${N8N_BASIC_AUTH_USER}
+      N8N_BASIC_AUTH_PASSWORD: ${N8N_BASIC_AUTH_PASSWORD}
+      N8N_SECURE_COOKIE: "false"
+    volumes:
+      - n8ndata:/home/node/.n8n
+      - ./n8n/workflows:/workflows:ro
+    ports: ["5678:5678"]
+
+  metabase:
+    image: metabase/metabase:latest
+    <<: *service-base
+    volumes:
+      - mbdata:/metabase-data
+    ports: ["3000:3000"]
+    depends_on: { postgres: { condition: service_healthy } }
+
+  # ----------------------- Reverse proxy -----------------------
+  caddy:
+    image: caddy:2-alpine
+    <<: *service-base
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+    ports: ["80:80", "443:443"]
+    depends_on: [channel-gateway, n8n]
+
+networks:
+  kivano:
+    driver: bridge
+
+volumes:
+  pgdata:
+  qdrantdata:
+  n8ndata:
+  mbdata:
+  caddydata:

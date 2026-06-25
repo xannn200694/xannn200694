@@ -1,0 +1,21 @@
+# RAG Service (E2)
+
+Индексация базы знаний и семантический поиск. Контракт — `docs/03-interfaces.md` §3.
+
+> Скелет: in-memory индекс + лексический скоринг (без внешних зависимостей).
+> В эпике E2 заменяется на эмбеддинги (`text-embedding-3-small`) + Qdrant/pgvector.
+
+## Запуск
+```bash
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8002
+python -m pytest -q
+```
+
+## Эндпоинты
+- `POST /v1/ingest`, `POST /v1/search`, `DELETE /v1/documents/{doc_id}`, `GET /v1/health`
+
+## TODO (эпик E2, решение D5)
+- Парсеры источников: краулер сайта, Word (.docx), PDF (+опц. OCR для сканов).
+- Эмбеддинги + Qdrant, реранкинг, фильтры по источнику/языку.
+- Оценочный набор качества (recall@k).

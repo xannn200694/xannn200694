@@ -1,0 +1,21 @@
+# Reverse proxy для входящих вебхуков и UI.
+# На локальной разработке используем :80. В проде заменить на домен с авто-TLS.
+
+:80 {
+	# Вебхуки мессенджеров → channel-gateway
+	handle_path /webhooks/* {
+		reverse_proxy channel-gateway:8000
+	}
+
+	# n8n UI и его вебхуки
+	handle_path /n8n/* {
+		reverse_proxy n8n:5678
+	}
+
+	# Аналитика (Metabase)
+	handle_path /analytics/* {
+		reverse_proxy metabase:3000
+	}
+
+	respond "Kivano AI Sales Platform" 200
+}
