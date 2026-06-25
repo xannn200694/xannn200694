@@ -6,6 +6,15 @@
 /out/
 vendor/
 
+# Скомпилированные бинарники сервисов/моков (go build в каталоге модуля)
+/services/llm-gateway/llm-gateway
+/services/rag/rag
+/services/channel-gateway/channel-gateway
+/services/crm-connector/crm-connector
+/mocks/mock-llm/mock-llm
+/mocks/mock-rag/mock-rag
+/mocks/mock-crm/mock-crm
+
 # Env / secrets
 .env
 *.local
