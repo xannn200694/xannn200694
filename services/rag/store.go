@@ -163,7 +163,7 @@ type QdrantStore struct {
 func NewQdrantStore(dim int) *QdrantStore {
 	return &QdrantStore{
 		baseURL:    env("QDRANT_URL", "http://qdrant:6333"),
-		collection: env("RAG_COLLECTION", "kivano_kb"),
+		collection: env("RAG_COLLECTION", "k-technology_kb"),
 		dim:        dim,
 		client:     &http.Client{Timeout: 30 * time.Second},
 		docs:       map[string]struct{}{},

@@ -9,14 +9,14 @@
 ## 1. Подключение Metabase к PostgreSQL
 
 Metabase и PostgreSQL поднимаются в общем `docker-compose.yml` (Metabase на
-порту `3000`, в одной docker-сети `kivano` с контейнером `postgres`).
+порту `3000`, в одной docker-сети `k-technology` с контейнером `postgres`).
 
 1. Запустите стек: `cp .env.example .env && docker compose up --build` (из корня репозитория).
 2. Откройте `http://localhost:3000`, пройдите первичную настройку администратора.
 3. **Admin settings → Databases → Add database → PostgreSQL**:
    - **Host:** `postgres`  (имя сервиса в docker-сети, НЕ `localhost`)
    - **Port:** `5432`
-   - **Database name:** значение `POSTGRES_DB` (по умолчанию `kivano`)
+   - **Database name:** значение `POSTGRES_DB` (по умолчанию `k-technology`)
    - **Username / Password:** `POSTGRES_USER` / `POSTGRES_PASSWORD` из `.env`
 4. Сохраните. Metabase просканирует схему и подхватит таблицы и витрины `kpi_*`.
 
@@ -45,7 +45,7 @@ psql "$DATABASE_URL" -f analytics/seed/seed_events.sql  # демо-данные 
 
 ---
 
-## 3. Дашборд «KPI продаж Kivano» — карточки
+## 3. Дашборд «KPI продаж K-Technology» — карточки
 
 Каждая карточка — это либо GUI-вопрос к витрине `kpi_*`, либо нативный
 SQL-запрос (ниже приведены готовые SELECT'ы для режима *Native query*).

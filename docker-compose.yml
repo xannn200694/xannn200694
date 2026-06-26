@@ -1,4 +1,4 @@
-name: kivano-ai-sales
+name: k-technology-ai-sales
 
 # Фундамент платформы (E0 / M0). Поднимает инфраструктуру, сервисы-скелеты и моки границ.
 # Запуск: cp .env.example .env && docker compose up --build
@@ -6,7 +6,7 @@ name: kivano-ai-sales
 x-service-base: &service-base
   env_file: .env
   restart: unless-stopped
-  networks: [kivano]
+  networks: [k-technology]
 
 services:
   # ----------------------- Инфраструктура -----------------------
@@ -108,7 +108,7 @@ services:
     depends_on: [channel-gateway, n8n]
 
 networks:
-  kivano:
+  k-technology:
     driver: bridge
 
 volumes:

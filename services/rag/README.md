@@ -40,7 +40,7 @@ go vet ./... && go test ./...
 | `APP_MODE` | `mock` | `mock` (оффлайн) / `real` (Qdrant + OpenAI) |
 | `PORT` | `8000` | порт HTTP |
 | `QDRANT_URL` | `http://qdrant:6333` | адрес Qdrant (real) |
-| `RAG_COLLECTION` | `kivano_kb` | имя коллекции Qdrant |
+| `RAG_COLLECTION` | `k-technology_kb` | имя коллекции Qdrant |
 | `RAG_TOP_K` | `5` | top_k по умолчанию (контракт) |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | база для эмбеддингов (переопределяемая) |
 | `OPENAI_API_KEY` | — | ключ OpenAI (real) |

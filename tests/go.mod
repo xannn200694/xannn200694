@@ -1,3 +1,3 @@
-module github.com/kivano/tests
+module github.com/k-technology/tests
 
 go 1.26.0

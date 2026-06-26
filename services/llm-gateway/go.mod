@@ -1,3 +1,3 @@
-module github.com/kivano/llm-gateway
+module github.com/k-technology/llm-gateway
 
 go 1.26.0

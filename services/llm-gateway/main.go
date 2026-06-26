@@ -73,7 +73,7 @@ var prompts = map[string]PromptInfo{
 		ID:      "sales_assistant",
 		Name:    "sales_assistant",
 		Version: "v1",
-		Body: "Ты — вежливый ассистент отдела продаж Kivano. Отвечай кратко на языке клиента. " +
+		Body: "Ты — вежливый ассистент отдела продаж K-Technology. Отвечай кратко на языке клиента. " +
 			"Используй только контекст из базы знаний; если ответа нет — предложи менеджера.",
 		ModelDefaults: map[string]any{"temperature": 0.2, "tier": "cheap"},
 	},

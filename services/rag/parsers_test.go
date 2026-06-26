@@ -48,7 +48,7 @@ func multipartUpload(t *testing.T, fieldData []byte, filename string) (*bytes.Bu
 }
 
 func TestIngestDocx(t *testing.T) {
-	docx := makeDocx(t, "Гарантия на ноутбук Kivano составляет двадцать четыре месяца.")
+	docx := makeDocx(t, "Гарантия на ноутбук K-Technology составляет двадцать четыре месяца.")
 	body, contentType := multipartUpload(t, docx, "warranty.docx")
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/ingest/docx", body)
@@ -107,13 +107,13 @@ func TestExtractPDFTextUncompressed(t *testing.T) {
 	// Минимальный PDF-подобный content stream с операторами Tj/TJ (без сжатия).
 	pdf := []byte("%PDF-1.4\n" +
 		"4 0 obj\n<< /Length 60 >>\nstream\n" +
-		"BT /F1 12 Tf 72 720 Td (Привет Kivano) Tj 0 -14 Td [(База )-5(знаний)] TJ ET\n" +
+		"BT /F1 12 Tf 72 720 Td (Привет K-Technology) Tj 0 -14 Td [(База )-5(знаний)] TJ ET\n" +
 		"endstream\nendobj\n%%EOF")
 	got, err := extractPDFText(pdf)
 	if err != nil {
 		t.Fatalf("extract pdf: %v", err)
 	}
-	if !strings.Contains(got, "Kivano") || !strings.Contains(got, "знаний") {
+	if !strings.Contains(got, "K-Technology") || !strings.Contains(got, "знаний") {
 		t.Fatalf("unexpected pdf text: %q", got)
 	}
 }

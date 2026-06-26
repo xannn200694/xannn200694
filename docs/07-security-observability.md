@@ -22,7 +22,7 @@
 ### Тестирование (контракты/качество)
 - Юнит/интеграционные тесты в каждом Go-модуле (offline, httptest для внешних API).
 - Контрактные тесты в `tests/`: валидация n8n-воркфлоу (структура), проверка обязательных полей образцов payload.
-- Smoke-тест живого стека (`KIVANO_SMOKE=1 go test ./...` из `tests/`, либо `scripts/smoke.sh`).
+- Smoke-тест живого стека (`KTECH_SMOKE=1 go test ./...` из `tests/`, либо `scripts/smoke.sh`).
 - CI (GitHub Actions): `go vet`/`go build`/`go test` по матрице модулей + `docker compose config`.
 
 ## TODO (требуют отдельного решения/доступов)
@@ -41,6 +41,6 @@
 
 ```bash
 make test                      # go test по всем модулям (offline)
-KIVANO_SMOKE=1 go test ./...   # из каталога tests/ — smoke по запущенному стеку
+KTECH_SMOKE=1 go test ./...   # из каталога tests/ — smoke по запущенному стеку
 bash scripts/smoke.sh          # curl /health всех сервисов
 ```

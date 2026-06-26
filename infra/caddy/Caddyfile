@@ -17,5 +17,5 @@
 		reverse_proxy metabase:3000
 	}
 
-	respond "Kivano AI Sales Platform" 200
+	respond "K-Technology AI Sales Platform" 200
 }

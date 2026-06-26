@@ -1,5 +1,5 @@
 {
-  "description": "Оценочный набор для recall@k (E2). Документы — небольшая база знаний Kivano, вопросы — ожидаемый источник и ключевые слова. Используется в eval_test.go (MockEmbedder + MemoryStore, оффлайн).",
+  "description": "Оценочный набор для recall@k (E2). Документы — небольшая база знаний K-Technology, вопросы — ожидаемый источник и ключевые слова. Используется в eval_test.go (MockEmbedder + MemoryStore, оффлайн).",
   "top_k": 3,
   "documents": [
     {
